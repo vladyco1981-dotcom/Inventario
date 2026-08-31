@@ -1,72 +1,76 @@
 <?php
 
-use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\ProductController;
-use App\Http\Controllers\Api\CategoryController;
-use App\Http\Controllers\Api\SupplierController;
-use App\Http\Controllers\Api\WarehouseController;
-use App\Http\Controllers\Api\StockMovementController;
-use App\Http\Controllers\Api\CustomerController;
-use App\Http\Controllers\Api\OrderController;
-use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Inventory\CategoryController;
+use App\Http\Controllers\Inventory\ProductController;
+use App\Http\Controllers\Inventory\SupplierController;
+use App\Http\Controllers\Inventory\WarehouseController;
+use App\Http\Controllers\Inventory\StockMovementController;
+use App\Http\Controllers\Sales\CustomerController;
+use App\Http\Controllers\Sales\OrderController;
+use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\RoleController;
+use App\Http\Controllers\Admin\DashboardController;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
-|
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
-|
 */
 
 // Public routes
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/register', [AuthController::class, 'register']);
+Route::post('/auth/login', [AuthController::class, 'login']);
+Route::post('/auth/register', [AuthController::class, 'register']);
 
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     // Auth
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::get('/user', [AuthController::class, 'user']);
+    Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::get('/auth/user', [AuthController::class, 'user']);
 
     // Dashboard
-    Route::get('/dashboard', [DashboardController::class, 'index']);
-    Route::get('/dashboard/low-stock', [DashboardController::class, 'lowStockProducts']);
-    Route::get('/dashboard/expiring-soon', [DashboardController::class, 'expiringProducts']);
+    Route::prefix('dashboard')->group(function () {
+        Route::get('/stats', [DashboardController::class, 'getStats']);
+        Route::get('/recent-activity', [DashboardController::class, 'getRecentActivity']);
+        Route::get('/sales-chart', [DashboardController::class, 'getSalesChart']);
+        Route::get('/top-products', [DashboardController::class, 'getTopProducts']);
+        Route::get('/low-stock-alerts', [DashboardController::class, 'getLowStockAlerts']);
+        Route::get('/expiring-alerts', [DashboardController::class, 'getExpiringAlerts']);
+    });
 
-    // Categories
-    Route::apiResource('categories', CategoryController::class);
+    // Inventory Module
+    Route::prefix('inventory')->group(function () {
+        Route::apiResource('categories', CategoryController::class);
+        Route::apiResource('suppliers', SupplierController::class);
+        Route::apiResource('products', ProductController::class);
+        Route::apiResource('warehouses', WarehouseController::class);
+        Route::apiResource('stock-movements', StockMovementController::class);
+        
+        // Product specific routes
+        Route::get('products/low-stock', [ProductController::class, 'lowStock']);
+        Route::get('products/expiring-soon/{days?}', [ProductController::class, 'expiringSoon']);
+        
+        // Stock adjustment
+        Route::post('stock/adjust', [StockMovementController::class, 'adjustStock']);
+    });
 
-    // Suppliers
-    Route::apiResource('suppliers', SupplierController::class);
+    // Sales Module
+    Route::prefix('sales')->group(function () {
+        Route::apiResource('customers', CustomerController::class);
+        
+        // Orders - requires seller or admin role
+        Route::middleware('role:seller,admin')->group(function () {
+            Route::apiResource('orders', OrderController::class);
+            Route::patch('orders/{order}/status', [OrderController::class, 'updateStatus']);
+            Route::post('orders/{order}/payments', [OrderController::class, 'registerPayment']);
+        });
+    });
 
-    // Products
-    Route::apiResource('products', ProductController::class);
-    Route::get('products/search', [ProductController::class, 'search']);
-    Route::get('products/{product}/stock', [ProductController::class, 'stock']);
-
-    // Warehouses
-    Route::apiResource('warehouses', WarehouseController::class);
-    Route::get('warehouses/{warehouse}/products', [WarehouseController::class, 'products']);
-
-    // Stock Movements
-    Route::apiResource('stock-movements', StockMovementController::class);
-    Route::post('products/{product}/entry', [StockMovementController::class, 'entry']);
-    Route::post('products/{product}/exit', [StockMovementController::class, 'exit']);
-
-    // Customers
-    Route::apiResource('customers', CustomerController::class);
-
-    // Orders - Admin/Seller only
-    Route::middleware('role:seller,admin')->group(function () {
-        Route::apiResource('orders', OrderController::class);
-        Route::get('orders/{order}/invoice', [OrderController::class, 'invoice']);
-        Route::post('orders/{order}/confirm', [OrderController::class, 'confirm']);
-        Route::post('orders/{order}/complete', [OrderController::class, 'complete']);
-        Route::post('orders/{order}/cancel', [OrderController::class, 'cancel']);
-        Route::post('orders/{order}/payments', [OrderController::class, 'addPayment']);
+    // Admin Module - requires admin role
+    Route::prefix('admin')->middleware('role:admin')->group(function () {
+        Route::apiResource('users', UserController::class);
+        Route::apiResource('roles', RoleController::class);
+        Route::post('users/{user}/assign-roles', [UserController::class, 'assignRoles']);
     });
 });
